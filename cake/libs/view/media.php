@@ -193,10 +193,8 @@ class MediaView extends View {
 				// Current only support the <start>-<end> format
 				// No support for multi range <start>-<end>, <start>-<end>
 				// No support for short format <start>- or -<end>
-				if (!preg_match('/^bytes=\d+-\d+$/', $httpRange)) {
-					header('HTTP/1.1 416 Requested Range Not Satisfiable');
-					header('Content-Range: bytes */' . $fileSize); // Required in 416.
-					exit;
+				if (!preg_match('/^bytes=\d*-\d*$/', $httpRange)) {
+					$this->_invalidRange($fileSize);
 				}
 
 				$range = substr($httpRange, 6);
@@ -205,10 +203,19 @@ class MediaView extends View {
 				$start = $parts[0];
 				$end = $parts[1];
 
-				if ($start > $end) {
-					header('HTTP/1.1 416 Requested Range Not Satisfiable');
-					header('Content-Range: bytes */' . $fileSize); // Required in 416.
-					exit;
+				if ($start === "" && $end === "") {
+					$this->_invalidRange($fileSize);
+				}
+
+				if ($start === "") {
+					$start = $fileSize - $end;
+					$end = $fileSize;
+				} else if ($end === "") {
+					$end = $fileSize;
+				}
+
+				if ($start > $end || $start < 0) {
+					$this->_invalidRange($fileSize);
 				}
 
 				$length = $end - $start + 1;
@@ -217,7 +224,7 @@ class MediaView extends View {
 				$this->_header(array(
 					'HTTP/1.1 206 Partial Content',
 					'Content-Length: ' . $length,
-					'Content-Range: bytes ' . $range . '/' . $fileSize,
+					'Content-Range: bytes ' . $start . '-'. $end . '/' . $fileSize,
 					'Content-Type: ' . $this->mimeType[strtolower($extension)]
 				));
 			} else {
@@ -263,6 +270,18 @@ class MediaView extends View {
 			return;
 		}
 		return false;
+	}
+
+/**
+ * Method to set invalid range headers and exit
+ * @param number $fileSize
+ * @param boolean $boolean
+ * @access protected
+ */
+	function _invalidRange($fileSize) {
+		header('HTTP/1.1 416 Requested Range Not Satisfiable');
+		header('Content-Range: bytes */' . $fileSize); // Required in 416.
+		exit;
 	}
 
 /**
