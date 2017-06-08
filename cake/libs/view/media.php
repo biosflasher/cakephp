@@ -136,6 +136,8 @@ class MediaView extends View {
 			$buffer = '';
 			$fileSize = @filesize($path);
 			$handle = fopen($path, 'rb');
+			$end = $fileSize;
+			$httpRange = env('HTTP_RANGE');
 
 			if ($handle === false) {
 				return false;
@@ -145,6 +147,8 @@ class MediaView extends View {
 			} else {
 				$modified = gmdate('D, d M Y H:i:s') . ' GMT';
 			}
+
+			$this->_header('Accept-Ranges: bytes');
 
 			if ($download) {
 				$contentTypes = array('application/octet-stream');
@@ -179,12 +183,43 @@ class MediaView extends View {
 					$this->_header(array(
 						'HTTP/1.1 206 Partial Content',
 						'Content-Length: ' . $length,
-						'Content-Range: bytes ' . $range . $size . '/' . $fileSize));
+						'Content-Range: bytes ' . $range . '/' . $fileSize));
 
 					fseek($handle, $range);
 				} else {
 					$this->_header('Content-Length: ' . $fileSize);
 				}
+			} else if (isset($httpRange)) {
+				// Current only support the <start>-<end> format
+				// No support for multi range <start>-<end>, <start>-<end>
+				// No support for short format <start>- or -<end>
+				if (!preg_match('/^bytes=\d+-\d+$/', $httpRange)) {
+					header('HTTP/1.1 416 Requested Range Not Satisfiable');
+					header('Content-Range: bytes */' . $fileSize); // Required in 416.
+					exit;
+				}
+
+				$range = substr($httpRange, 6);
+
+				$parts = explode('-', $range);
+				$start = $parts[0];
+				$end = $parts[1];
+
+				if ($start > $end) {
+					header('HTTP/1.1 416 Requested Range Not Satisfiable');
+					header('Content-Range: bytes */' . $fileSize); // Required in 416.
+					exit;
+				}
+
+				$length = $end - $start + 1;
+				fseek($handle, $start);
+
+				$this->_header(array(
+					'HTTP/1.1 206 Partial Content',
+					'Content-Length: ' . $length,
+					'Content-Range: bytes ' . $range . '/' . $fileSize,
+					'Content-Type: ' . $this->mimeType[strtolower($extension)]
+				));
 			} else {
 				$this->_header('Date: ' . gmdate('D, d M Y H:i:s', time()) . ' GMT');
 				if ($cache) {
@@ -205,14 +240,20 @@ class MediaView extends View {
 					'Content-Type: ' . $this->mimeType[strtolower($extension)],
 					'Content-Length: ' . $fileSize));
 			}
+
 			$this->_output();
 			$this->_clearBuffer();
 
-			while (!feof($handle)) {
+			while (!feof($handle) && ($p = ftell($handle)) <= $end) {
 				if (!$this->_isActive()) {
 					fclose($handle);
 					return false;
 				}
+
+				if ($p + $chunkSize > $end) {
+					$chunkSize = $end - $p + 1;
+				}
+
 				set_time_limit(0);
 				$buffer = fread($handle, $chunkSize);
 				echo $buffer;
