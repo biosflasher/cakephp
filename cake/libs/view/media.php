@@ -209,9 +209,9 @@ class MediaView extends View {
 
 				if ($start === "") {
 					$start = $fileSize - $end;
-					$end = $fileSize;
+					$end = $fileSize - 1;
 				} else if ($end === "") {
-					$end = $fileSize;
+					$end = $fileSize - 1;
 				}
 
 				if ($start > $end || $start < 0) {
